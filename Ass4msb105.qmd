@@ -807,5 +807,92 @@ eu_data_nested |>
 
 ### Oppagve 29
 
+```{r}
+
+gini_n1 |>
+  filter(nc == "FR") |>
+  ggplot(aes(x = time, y = gini_n1, group = n1, colour = n1)) +
+  geom_line() +
+  labs(x = "Year", y = "gini_n1") +
+  theme_gray() +
+  theme(legend.position = "right")
+
+```
+
+
+
+### Oppgave 30
+
+```{r}
+
+gini_n1 |>
+  filter(nc == "FR", time == 2022) |>
+  arrange(desc(gini_n1)) |>
+  slice_head(n = 6) |>
+  select(n1, gini_n1)
+
+
+```
+
+Tabellen viser at FR1 (Île-de-France) har suverent høyest Gini-koeffisient blant NUTS1-regionene i Frankrike i 2022. Regionen omfatter Paris og omkringliggende områder, og den høye Gini-verdien indikerer store regionale forskjeller i økonomisk aktivitet. Dette er konsistent med at hovedstadsregioner ofte kombinerer svært produktive sentra med områder som henger etter økonomisk.
+
+
+### Oppgave 31
+
+```{r}
+
+# Sjekk at kolonnen finnes (skal gi TRUE):
+"gdp_pc_n3" %in% names(eu_data)
+
+# 1) Filtrer ut NUTS3 i den NUTS1-regionen i Frankrike som skiller seg ut (FR1)
+fr1_n3 <- eu_data |>
+  filter(nc == "FR", n1 == "FR1") |>
+  select(time, n3, gdp_pc_n3) |>
+  filter(!is.na(gdp_pc_n3))
+
+# 2) Linjeplot: NUTS3-regioner i FR1 (GDP per capita, NUTS3)
+ggplot(fr1_n3, aes(x = time, y = gdp_pc_n3, group = n3, colour = n3)) +
+  geom_line(alpha = 0.7) +
+  labs(x = "Year", y = "gdp_pc_n3") +
+  theme_gray()
+
+
+```
+
+```{r}
+
+fr1_table_2022 <- fr1_n3 |>
+  filter(time == 2022) |>
+  distinct(n3, gdp_pc_n3) |>
+  arrange(desc(gdp_pc_n3))
+
+fr1_table_2022
+```
+
+
+
+
+```{r}
+ggplot(fr_n3, aes(x = time, y = gdp_pc_n3, group = n3, colour = n3)) +
+  geom_line() +
+  labs(
+    x = "Year",
+    y = "GDP per capita (NUTS3)",
+    colour = "NUTS3"
+  ) +
+  theme_gray() +
+  theme(legend.position = "bottom")
+
+```
+
+```{r}
+fr_n3 |>
+  filter(time == 2022) |>
+  select(n3, gdp_pc_n3) |>
+  arrange(desc(gdp_pc_n3))
+
+```
+
+
 
 
