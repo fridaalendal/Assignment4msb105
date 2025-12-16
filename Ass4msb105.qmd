@@ -652,15 +652,160 @@ gini_nc |>
 
 ```{r}
 
+library(dplyr)
+library(ggplot2)
+
+
+gini_first_last <- gini_nc |>
+  arrange(nc_name, time) |>
+  group_by(nc_name) |>
+  summarise(
+    first_year = min(time[!is.na(gini_nc)]),
+    gini_first = gini_nc[match(first_year, time)],
+    gini_2022  = gini_nc[time == 2022][1],
+    .groups = "drop"
+  ) |>
+  
+  filter(!is.na(gini_first), !is.na(gini_2022)) |>
+  mutate(group = if_else(gini_2022 < gini_first,
+                         "Lavere regional ulikhet i 2022",
+                         "Høyere regional ulikhet i 2022"))
+
+# Gruppere
+countries_lower <- gini_first_last |> filter(group == "Lavere regional ulikhet i 2022") |> pull(nc_name)
+countries_higher <- gini_first_last |> filter(group == "Høyere regional ulikhet i 2022") |> pull(nc_name)
+
+# Plot 1
+gini_nc |>
+  filter(nc_name %in% countries_lower) |>
+  ggplot(aes(x = time, y = gini_nc, group = nc_name, colour = nc_name)) +
+  geom_line() +
+  labs(
+    title = "Land med lavere regional ulikhet i 2022 enn første år vi har data for",
+    x = "Year",
+    y = "gini_nc"
+  ) +
+  theme_gray()
+
+# Plot 2
+gini_nc |>
+  filter(nc_name %in% countries_higher) |>
+  ggplot(aes(x = time, y = gini_nc, group = nc_name, colour = nc_name)) +
+  geom_line() +
+  labs(
+    title = "Land med høyere regional ulikhet i 2022 enn første år vi har data for",
+    x = "Year",
+    y = "gini_nc"
+  ) +
+  theme_gray()
+
+
 ```
 
 
+## Oppgave 24
+
+```{r}
+
+gini_n2 |>
+  filter(nc == "IE") |>
+  ggplot(aes(x = time, y = gini_n2, group = n2, colour = n2)) +
+  geom_line() +
+  labs(x = "Year", y = "gini_n2") +
+  theme_gray()
+
+```
+
+
+# Hvordan er verdiskapningen fordelt mellom regionene i ulike land?
+
+## Spania
+
+### Oppgave 25
+
+```{r}
+
+gini_n2 |>
+  filter(nc == "ES") |>
+  ggplot(aes(x = time, y = gini_n2, group = n2, colour = n2)) +
+  geom_line() +
+  labs(x = "Year", y = "gini_n2") +
+  theme_gray() +
+  theme(legend.position = "bottom")
+
+```
+
+### Oppgave 26
+
+```{r}
+gini_n1 |>
+  filter(nc == "ES") |>
+  ggplot(aes(x = time, y = gini_n1, group = n1, colour = n1)) +
+  geom_line() +
+  labs(x = "Year", y = "gini_n1") +
+  theme_gray() +
+  theme(legend.position = "bottom")
+
+```
+
+Basert på linjeplottet ser vi at enkelte NUTS1-regioner i Spania har hatt en tydelig nedgang i Gini-koeffisienten over tid, noe som indikerer økt regional utjevning. Disse regionene kjennetegnes av en relativt stabil eller fallende ulikhet gjennom perioden, særlig etter finanskrisen rundt 2008–2010. En mulig forklaring kan være at regionene består av færre og mer like NUTS3-regioner, eller at økonomisk vekst og strukturendringer har kommet flere områder innen regionen til gode. I tillegg kan nasjonal og regional politikk, samt overføringer og investeringer, ha bidratt til å redusere interne forskjeller. Samtidig ser vi at andre NUTS1-regioner har hatt mer stabil eller økende ulikhet, noe som tyder på at utviklingen ikke er entydig og varierer betydelig mellom regionene.
 
 
 
 
+## Tyskland
+
+### Oppgave 27
+
+```{r}
+gini_n2 |>
+  filter(nc == "DE") |>
+  ggplot(aes(x = time, y = gini_n2, group = n2)) +
+  geom_line(colour = "black", alpha = 0.7) +
+  labs(
+    x = "Year",
+    y = "gini_n2"
+  ) +
+  theme_gray() +
+  theme(legend.position = "none")
+
+```
+Vi ser at Gini-koeffisientene varierer betydelig mellom NUTS2-regionene i Tyskland, noe som indikerer store regionale forskjeller i hvordan verdiskapingen er fordelt internt i regionene. Regioner med særlig høye Gini-verdier tyder på at verdiskapingen er konsentrert i noen få NUTS3-områder, ofte knyttet til store byregioner og økonomiske sentra. Dette kan for eksempel være regioner som inkluderer storbyer med høy produktivitet og sterke næringsklynger, kombinert med omkringliggende områder med lavere økonomisk aktivitet. Regioner med lavere Gini-verdier fremstår derimot mer homogene, der verdiskapingen er jevnere fordelt mellom underregionene. Dette peker på at de største regionale ulikhetene i Tyskland i stor grad er knyttet til urbanisering og konsentrasjon av økonomisk aktivitet i enkelte deler av landet.
 
 
+
+
+### Oppgave 28
+
+```{r}
+
+gini_n1 |>
+  filter(nc == "DE") |>
+  ggplot(aes(x = time, y = gini_n1, group = n1, colour = n1)) +
+  geom_line() +
+  labs(x = "Year", y = "gini_n1") +
+  theme_gray() +
+  theme(legend.position = "right")
+
+```
+
+
+```{r}
+eu_data_nested |> 
+  unnest(NUTS1_data) |> 
+  filter(nc_name == "Tyskland") |> 
+  filter(time == "2022") |>
+  select(n1, gini_n1, num_reg_n1) |> 
+  arrange(desc(gini_n1)) |> 
+  flextable() |> 
+  line_spacing(space = 0.3) |> 
+  colformat_double(j = 2, digits = 4)
+```
+
+
+## Frankrike
+
+### Oppagve 29
 
 
 
