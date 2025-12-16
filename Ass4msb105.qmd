@@ -1,0 +1,666 @@
+---
+title: "Assignment4msb105"
+author: "Frida Alendal"
+format: html
+editor: visual
+---
+
+
+
+```{r}
+
+#| label: setup
+#| message: false
+library(tidyverse)
+library(readxl)
+library(restatapi)
+library(DescTools)
+library(ggrepel)
+library(flextable)
+library(modelr)
+library(plm)
+library(broom)
+library(sandwich)
+```
+
+
+# Toc.eurostat
+
+```{r}
+toc_txt <- get_eurostat_toc(mode = "txt")
+```
+
+# GDP NUTS 3
+
+```{r}
+gdp_tabs <- toc_txt |>
+  mutate(title_lc = str_to_lower(title)) |>
+  filter(
+    str_detect(title_lc, "gdp") &
+      str_detect(title_lc, "nuts\\s*3")
+  ) |>
+  select(code, title) |>
+  arrange(code)
+
+gdp_tabs |>
+  flextable() |>
+  autofit()
+
+```
+
+```{r}
+
+gdp_id <- gdp_tabs |> slice(1) |> pull(code)   
+gdp_id
+
+```
+
+```{r}
+dsd_gdp <- get_eurostat_dsd("nama_10r_3gdp")
+```
+
+```{r}
+dsd_gdp |> 
+  filter(concept %in% c('freq', 'unit')) |> 
+  flextable()  |> 
+  width(j = 1, width = 1) |> 
+  width(j = 2, width = 2) |> 
+  width(j = 3, width = 2)
+```
+
+
+```{r}
+dsd_gdp |> 
+  filter(concept %in% c('geo')) |> 
+  head(n = 10) |> 
+  flextable()  |> 
+  width(j = 1, width = 1) |> 
+  width(j = 2, width = 2) |> 
+  width(j = 3, width = 2)
+```
+
+
+```{r}
+# GDP NUTS3 (PPS, EU27=2020), 2000-2023
+gdp_id   <- "nama_10r_3gdp"
+years    <- 2000:2023
+gdp_unit <- "MIO_PPS_EU27_2020"
+
+gdp_raw <- get_eurostat_data(
+  id = gdp_id,
+  filters = list(
+    nuts_level = "3",
+    unit      = gdp_unit
+  ),
+  date_filter = years,
+  exact_match = FALSE,
+  stringsAsFactors = FALSE
+)
+
+gdp <- gdp_raw |>
+  # Behold kun NUTS3-koder (5 tegn) for å unngå NUTS2/1/land osv.
+  dplyr::filter(nchar(geo) == 5) |>
+  # Gjør om fra "millioner" til nivå (valgfritt, men ofte nyttig)
+  dplyr::mutate(gdp_n3 = values * 1e6) |>
+  dplyr::select(geo, time, gdp_n3) |>
+  tibble::as_tibble()
+
+```
+
+```{r}
+dim(gdp)
+```
+
+```{r}
+gdp
+```
+
+```{r}
+gdp |> 
+  filter(geo == "IE053") |> 
+  print(n = 25)
+```
+
+
+```{r}
+ie_data <- tibble(
+  geo = c("IE053", "IE053", "IE053"),
+  time = c("2015", "2016", "2017"),
+  gdp_n3 = c(NA, NA, NA)
+)
+```
+
+```{r}
+gdp <- rbind(gdp, ie_data)
+
+```
+
+
+```{r}
+gdp <- gdp |>
+  arrange(geo, time) |>
+  mutate(gdp_n3 = zoo::na.approx(gdp_n3))
+
+```
+
+```{r}
+gdp |> filter(geo == "IE053") |> print(n = 25)
+
+```
+
+
+```{r}
+gdp <- gdp |> mutate(time = as.integer(time))
+ie_data <- ie_data |> mutate(time = as.integer(time))
+
+```
+
+
+
+# Population demo_r_pjanaggr3
+
+## Oppgave 1
+
+```{r}
+pop_tabs <- toc_txt |>
+  mutate(title_lc = str_to_lower(title)) |>
+  filter(
+    str_detect(title_lc, "population") &
+    str_detect(title_lc, "nuts\\s*3")
+  ) |>
+  select(code, title) |>
+  arrange(code)
+
+pop_tabs |> flextable() |> autofit()
+
+```
+
+
+```{r}
+pop_tabs |> filter(code == "nama_10r_3popgdp")
+
+```
+
+# Oppgave 2
+
+```{r}
+pop_id <- "nama_10r_3popgdp"
+dsd_pop <- get_eurostat_dsd(pop_id)
+
+dsd_pop |> filter(concept %in% c("freq","unit")) |> flextable()
+
+
+```
+
+```{r}
+
+pop <- get_eurostat_data(
+  id = pop_id,
+  filters = list(
+    freq = "A",
+    unit = "THS"
+  ),
+  date_filter = 2000:2023,
+  exact_match = FALSE,
+  stringsAsFactors = FALSE
+)
+
+```
+
+
+```{r}
+pop <- pop |> mutate(time = as.integer(time))
+gdp <- gdp |> mutate(time = as.integer(time))
+
+```
+
+```{r}
+
+dsd_pop |>
+  filter(concept %in% c("freq", "unit", "geo")) |>
+  arrange(concept) |>
+  slice(1:20) |>
+  flextable()
+
+```
+
+
+
+```{r}
+
+pop <- pop |>
+  transmute(
+    geo,
+    time,
+    pop_n3 = values * 1000  # THS -> personer
+  ) |>
+  filter(str_length(geo) == 5) |>
+  as_tibble()
+
+dim(pop)
+pop |> print(n = 10)
+
+```
+
+```{r}
+dim(pop)
+```
+
+
+
+## Oppgave 3
+
+```{r}
+gdp_pop <- gdp |> 
+  left_join(pop, by = c("geo", "time"))
+
+```
+
+```{r}
+eu_data <- gdp_pop %>%
+  filter(!str_sub(geo, 3, 4) == "ZZ") |> 
+  filter(!str_sub(geo, 1, 2) %in% c("CH", "NO")) |> 
+  filter(!str_sub(geo, 1, 2) %in% c("NL", "PT")) |> 
+  filter(!str_sub(geo, 1, 2) %in% c("ME")) |> 
+  filter(!geo == "FRY50") |> 
+  filter(time > 1999 & time < 2023)
+```
+
+```{r}
+eu_data <- eu_data |>
+  mutate(
+    gdp_pc_n3 = gdp_n3 / pop_n3
+  )
+
+```
+
+```{r}
+eu_data |>
+  select(geo, time, gdp_pc_n3) |>
+  print(n = 10)
+
+```
+
+```{r}
+c(sum(!is.na(eu_data$gdp_pc_n3)), sum(is.na(eu_data$gdp_pc_n3)))
+
+```
+
+
+
+```{r}
+miss_by_geo <- eu_data |>
+  group_by(geo) |>
+  summarise(
+    all_missing  = all(is.na(gdp_pc_n3)),
+    any_missing  = any(is.na(gdp_pc_n3)),
+    .groups = "drop"
+  )
+
+c(sum(miss_by_geo$all_missing), sum(miss_by_geo$any_missing))
+
+
+```
+
+
+
+```{r}
+# don't run if you don't mean it.
+rm(list = setdiff(ls(), c("eu_data")))
+```
+
+
+## Oppgave 4
+
+```{r}
+eu_data <- eu_data |>
+  rename(n3 = geo) |>
+  mutate(
+    n2 = str_sub(n3, 1, 4),
+    n1 = str_sub(n3, 1, 3),
+    nc = str_sub(n3, 1, 2)
+  )
+
+```
+
+```{r}
+eu_data |> select(nc, n1, n2, n3) |> distinct() |> head(10)
+
+```
+
+
+## Opggave 5
+
+```{r}
+
+sum(eu_data$pop_n3 == 0, na.rm = TRUE)
+
+
+eu_data |> filter(pop_n3 == 0) |> select(n3, time, pop_n3) |> head(20)
+
+
+eu_data <- eu_data |> mutate(pop_n3 = na_if(pop_n3, 0))
+
+```
+
+## Oppgave 6
+
+```{r}
+nuts3_per_land <- eu_data |>
+  distinct(nc, n3) |>
+  count(nc, name = "Antall") |>
+  arrange(nc)
+
+nuts3_per_land |>
+  flextable() |>
+  autofit()
+
+```
+
+
+## Oppgave 7
+
+```{r}
+summary(eu_data$gdp_pc_n3)
+
+```
+
+Minste verdi er på 2214, som betyr: laveste BNP per capita på NUTS3-nivå i datasettet.Typisk svært lavinntektsregion (ofte øst-/sørøst-Europa). Største verdi er på 180 416, som betyr: Ekstremt høy verdi. Dette kan reflektere til spesielle regioner som (f.eks. Dublin, Luxembourg, finans-/hovedstadsregioner).
+
+
+## Oppgave 8
+
+```{r}
+eu_data <- eu_data |>
+  mutate(
+    nc_name = case_when(
+      nc == "AL" ~ "Albania",
+      nc == "AT" ~ "Østerrike",
+      nc == "BE" ~ "Belgia",
+      nc == "BG" ~ "Bulgaria",
+      nc == "CY" ~ "Kypros",
+      nc == "CZ" ~ "Tsjekkia",
+      nc == "DE" ~ "Tyskland",
+      nc == "DK" ~ "Danmark",
+      nc == "EE" ~ "Estland",
+      nc == "EL" ~ "Hellas",
+      nc == "ES" ~ "Spania",
+      nc == "FI" ~ "Finland",
+      nc == "FR" ~ "Frankrike",
+      nc == "HR" ~ "Kroatia",
+      nc == "HU" ~ "Ungarn",
+      nc == "IE" ~ "Irland",
+      nc == "IT" ~ "Italia",
+      nc == "LT" ~ "Litauen",
+      nc == "LU" ~ "Luxembourg",
+      nc == "LV" ~ "Latvia",
+      nc == "MK" ~ "Nord-Makedonia",
+      nc == "MT" ~ "Malta",
+      nc == "PL" ~ "Polen",
+      nc == "RO" ~ "Romania",
+      nc == "RS" ~ "Serbia",
+      nc == "SE" ~ "Sverige",
+      nc == "SI" ~ "Slovenia",
+      nc == "SK" ~ "Slovakia",
+      nc == "TR" ~ "Tyrkia",
+      TRUE ~ NA_character_
+    )
+  )
+
+```
+
+```{r}
+eu_data |>
+  select(nc_name, nc) |>
+  distinct() |>
+  arrange(nc_name)   
+```
+
+## Oppgave 9
+
+```{r}
+gini_n2 <- eu_data |>
+  group_by(n2, time, n1, nc, nc_name) |> 
+  summarise(
+    gini_n2 = DescTools::Gini(gdp_pc_n3, weights = pop_n3, na.rm = TRUE),
+    pop_n2 = sum(pop_n3),
+    gdp_n2 = sum(gdp_n3),
+    gdp_pc_n2 =  gdp_n2 / pop_n2,
+    num_reg_n2 = n(),
+    .groups = "drop"
+  ) 
+```
+
+```{r}
+summary(gini_n2)
+
+```
+
+## Oppgave 10
+
+
+```{r}
+gini_n2 |>
+  filter(gini_n2 < 0.001) |>
+  arrange(num_reg_n2) |>
+  select(nc_name, nc, n1, n2, time, gini_n2, num_reg_n2) |>
+  print(n = 50)
+
+```
+
+Observasjoner med Gini-koeffisient lavere enn 0.001 kjennetegnes ved at NUTS2-regionen består av svært få, ofte kun én, underliggende NUTS3-region. I slike tilfeller er Gini-koeffisienten per definisjon nær null, ettersom det ikke foreligger noen regional fordeling av verdiskaping innen regionen. Disse lave Gini-verdiene reflekterer derfor datastrukturen snarere enn reell økonomisk likhet)
+
+
+
+## Oppagve 11
+
+```{r}
+gini_n1 <- eu_data |>
+  group_by(n1, time, nc, nc_name) |>
+  summarise(
+    gini_n1 = DescTools::Gini(
+      gdp_pc_n3,
+      weights = pop_n3,
+      na.rm = TRUE
+    ),
+    pop_n1 = sum(pop_n3),
+    gdp_n1 = sum(gdp_n3),
+    gdp_pc_n1 = gdp_n1 / pop_n1,
+    num_reg_n1 = n(),
+    .groups = "drop"
+  )
+
+```
+
+```{r}
+gini_n1 |> 
+  select(gini_n1, num_reg_n1, gdp_n1, pop_n1, gdp_pc_n1) |> 
+  summary() |> 
+  print(width = 76)
+```
+
+## Oppgave 12
+
+```{r}
+gini_nc <- eu_data |>
+  group_by(nc, nc_name, time) |>
+  summarise(
+    gini_nc = DescTools::Gini(
+      gdp_pc_n3,
+      weights = pop_n3,
+      na.rm = TRUE
+    ),
+    pop_nc = sum(pop_n3),
+    gdp_nc = sum(gdp_n3),
+    gdp_pc_nc = gdp_nc / pop_nc,
+    num_reg_nc = n(),
+    .groups = "drop"
+  )
+
+```
+
+
+
+```{r}
+gini_nc |> 
+  select(gini_nc, num_reg_nc, gdp_nc, pop_nc, gdp_pc_nc) |> 
+  summary() |> 
+  print(width = 80)
+```
+
+
+# "Nestete" datastrukturer
+
+
+## Oppgave 13
+
+```{r}
+gini_n3_nest <- eu_data |> 
+  group_by(nc_name, nc) |> 
+  nest(.key = "NUTS3_data") |> 
+  ungroup()
+```
+
+
+## Oppgave 14
+
+```{r}
+gini_NUTS2_nest <- gini_n2 |> 
+  group_by(nc_name, nc) |> 
+  nest(.key = "NUTS2_data") |> 
+  ungroup()
+```
+
+## Oppgave 15
+
+
+```{r}
+gini_NUTS1_nest <- gini_n1 |> 
+  group_by(nc_name, nc) |> 
+  nest(.key = "NUTS1_data") |> 
+  ungroup()
+```
+
+## Oppgave 16
+
+```{r}
+gini_NUTSc_nest <- gini_nc |> 
+  group_by(nc_name, nc) |> 
+  nest(.key = "NUTSc_data") |> 
+  ungroup()
+```
+
+## Oppgave 17
+
+```{r}
+
+gini_NUTSeu_nest <- eu_data |>
+  group_by(time) |>
+  summarise(
+    gini_eu    = DescTools::Gini(gdp_pc_n3, weights = pop_n3, na.rm = TRUE),
+    num_reg_eu = dplyr::n(),
+    .groups = "drop"
+  )
+
+```
+
+## Oppgave 18
+
+```{r}
+
+gini_NUTSeu_nest |>
+  ggplot(aes(x = time, y = gini_eu)) +
+  geom_line() +
+  labs(
+    x = "Year",
+    y = "gini_eu"
+  )
+
+```
+
+
+## Oppgave 19
+
+Basert på linjeplottet ser det ut til at Gini-koeffisienten for NUTS3-regioner i EU har hatt en svakt fallende trend over tid, særlig fra midten av 2000-tallet og frem mot de siste årene. Dette indikerer at ulikheten i verdiskaping mellom regioner har blitt redusert, om enn gradvis.
+
+Dette kan tolkes som at EUs struktur- og kohesjonsfond, som i stor grad retter seg mot mindre utviklede NUTS2-regioner, kan ha hatt en viss utjevnende effekt. At nedgangen er relativt moderat tyder samtidig på at slike tiltak virker langsomt, og at regionale forskjeller i verdiskaping er seiglivede.
+
+Samlet sett gir utviklingen støtte til at tiltakene kan bidra til økt regional konvergens, men uten å eliminere regionale forskjeller fullstendig.
+
+
+## Oppgave 20
+
+```{r}
+
+eu_data_nested <- gini_n3_nest |>
+  left_join(gini_NUTS2_nest, by = c("nc_name", "nc")) |>
+  left_join(gini_NUTS1_nest, by = c("nc_name", "nc")) |>
+  left_join(gini_NUTSc_nest, by = c("nc_name", "nc"))
+
+# Sjekk at det ser riktig ut
+glimpse(eu_data_nested)
+names(eu_data_nested)
+
+```
+
+
+# Plots som viser utviklingen 
+
+## Oppgave 21
+
+```{r}
+gini_nc |>
+  ggplot(aes(x = time, y = gini_nc, color = nc_name, group = nc_name)) +
+  geom_line() +
+  labs(x = "time", y = "gini_nc")
+
+```
+
+
+## Oppgave 22
+
+```{r}
+gini_2022 <- gini_nc |>
+  filter(time == 2022) |>
+  select(nc_name, gini_nc) |>
+  arrange(desc(gini_nc))
+
+```
+
+
+```{r}
+gini_2022
+
+```
+
+```{r}
+library(kableExtra)
+
+gini_nc |>
+  filter(time == 2022) |>
+  select(nc_name, gini_nc) |>
+  arrange(desc(gini_nc)) |>
+  kable(digits = 7) |>
+  kable_styling(full_width = FALSE)
+
+
+```
+
+
+
+## Oppgave 23
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
