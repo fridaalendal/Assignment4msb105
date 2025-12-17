@@ -597,7 +597,7 @@ eu_data_nested <- gini_n3_nest |>
   left_join(gini_NUTS1_nest, by = c("nc_name", "nc")) |>
   left_join(gini_NUTSc_nest, by = c("nc_name", "nc"))
 
-# Sjekk at det ser riktig ut
+# Sjekker at det ser riktig ut
 glimpse(eu_data_nested)
 names(eu_data_nested)
 
@@ -829,7 +829,16 @@ gini_n1 |>
   filter(nc == "FR", time == 2022) |>
   arrange(desc(gini_n1)) |>
   slice_head(n = 6) |>
-  select(n1, gini_n1)
+  select(n1, gini_n1) |>
+  flextable() |>
+  flextable::colformat_double(j = "gini_n1", digits = 4) |>
+  flextable::set_header_labels(
+    n1 = "NUTS1-sone",
+    gini_n1 = "Gini (2022)"
+  ) |>
+  flextable::theme_booktabs() |>
+  flextable::autofit()
+  
 
 
 ```
@@ -841,16 +850,14 @@ Tabellen viser at FR1 (Île-de-France) har suverent høyest Gini-koeffisient bla
 
 ```{r}
 
-# Sjekk at kolonnen finnes (skal gi TRUE):
 "gdp_pc_n3" %in% names(eu_data)
 
-# 1) Filtrer ut NUTS3 i den NUTS1-regionen i Frankrike som skiller seg ut (FR1)
 fr1_n3 <- eu_data |>
   filter(nc == "FR", n1 == "FR1") |>
   select(time, n3, gdp_pc_n3) |>
   filter(!is.na(gdp_pc_n3))
 
-# 2) Linjeplot: NUTS3-regioner i FR1 (GDP per capita, NUTS3)
+
 ggplot(fr1_n3, aes(x = time, y = gdp_pc_n3, group = n3, colour = n3)) +
   geom_line(alpha = 0.7) +
   labs(x = "Year", y = "gdp_pc_n3") +
@@ -866,33 +873,100 @@ fr1_table_2022 <- fr1_n3 |>
   distinct(n3, gdp_pc_n3) |>
   arrange(desc(gdp_pc_n3))
 
-fr1_table_2022
+fr1_table_2022 |>
+  flextable() |>
+  flextable::set_header_labels(
+    n3 = "NUTS3-sone",
+    gdp_pc_n3 = "BNP per innbygger (2022)"
+  ) |>
+  flextable::colformat_double(j = "gdp_pc_n3", digits = 0, big.mark = " ") |>
+  flextable::theme_booktabs() |>
+  flextable::autofit()
+
+
 ```
 
 
-
-
 ```{r}
-ggplot(fr_n3, aes(x = time, y = gdp_pc_n3, group = n3, colour = n3)) +
-  geom_line() +
-  labs(
-    x = "Year",
-    y = "GDP per capita (NUTS3)",
-    colour = "NUTS3"
-  ) +
-  theme_gray() +
-  theme(legend.position = "bottom")
 
-```
+fr1_n3 <- eu_data |>
+  filter(nc == "FR", n1 == "FR1") |>
+  select(time, n3, gdp_pc_n3) |>
+  filter(!is.na(gdp_pc_n3))
 
-```{r}
-fr_n3 |>
+
+top6_n3 <- fr1_n3 |>
   filter(time == 2022) |>
-  select(n3, gdp_pc_n3) |>
+  arrange(desc(gdp_pc_n3)) |>
+  slice_head(n = 6) |>
+  pull(n3)
+
+fr1_n3_top6 <- fr1_n3 |>
+  filter(n3 %in% top6_n3)
+
+
+ggplot(fr1_n3_top6, aes(x = time, y = gdp_pc_n3, group = n3, colour = n3)) +
+  geom_line(alpha = 0.8) +
+  labs(x = "Year", y = "gdp_pc_n3") +
+  theme_gray()
+
+
+fr1_table_2022 <- fr1_n3_top6 |>
+  filter(time == 2022) |>
+  arrange(desc(gdp_pc_n3)) |>
+  select(n3, gdp_pc_n3)
+
+knitr::kable(fr1_table_2022,
+             digits = 0,
+             caption = "GDP per capita (gdp_pc_n3) for topp 6 NUTS3-soner i FR1 (2022)")
+
+```
+```{r}
+fr1_table_2022 <- fr1_n3 |>
+  filter(time == 2022, n3 %in% top6_n3) |>
+  distinct(n3, gdp_pc_n3) |>
   arrange(desc(gdp_pc_n3))
 
+fr1_table_2022 |>
+  flextable() |>
+  flextable::set_header_labels(
+    n3 = "NUTS3-sone",
+    gdp_pc_n3 = "BNP per innbygger (2022)"
+  ) |>
+  flextable::colformat_double(j = "gdp_pc_n3", digits = 0, big.mark = " ") |>
+  flextable::theme_booktabs() |>
+  flextable::autofit()
+
 ```
 
+
+
+### Oppgave 32
+
+Ut fra plottet og tabellen ser vi at FR1 har svært store interne forskjeller i verdiskaping (BNP per innbygger) mellom NUTS3-sonene. To av sonene (f.eks. FR101 og FR105 i vår tabell) ligger ekstremt høyt sammenlignet med resten, mens flere andre soner ligger betydelig lavere og følger en helt annen bane. Dette tyder på at økonomisk aktivitet er svært konsentrert i enkelte deler av regionen, mens andre deler har et lavere nivå. Når enkelte områder drar kraftig fra i verdiskaping, øker spredningen innen regionen, og det er i tråd med at FR1 får en høy Gini-koeffisient. Med andre ord: Den høye Gini-en i FR1 ser ut til å henge sammen med at regionen inneholder både “topper” (svært høy verdiskaping) og “bunn” (langt lavere), altså stor regional ulikhet internt.
+
+# Enkle modeller
+
+
+## "Data Science" modeller
+
+### Oppgave 33
+
+```{r}
+n3_data <- eu_data_nested |> 
+  unnest(NUTS3_data) |> 
+  select(nc_name, n2, n3, time, gdp_pc_n3)
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
 
 
 
