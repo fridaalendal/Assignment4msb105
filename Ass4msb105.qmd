@@ -1,8 +1,22 @@
 ---
 title: "Assignment4msb105"
-author: "Frida Alendal"
-format: html
+author: "Frida Alendal, Katinca Valvatne"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    theme: cosmo
+    code-fold: show
+    code-tools: true
+    df-print: paged
+    smooth-scroll: true
 editor: visual
+execute:
+  echo: true
+  warning: false
+  message: false
+  error: false
 ---
 
 
@@ -960,13 +974,333 @@ n3_data <- eu_data_nested |>
 
 
 ```{r}
+n2_data <- eu_data_nested |> 
+  unnest(NUTS2_data) |> 
+  select(nc_name, n2, time, gini_n2)
+```
+
+
+```{r}
+NUTS2_diff <- n3_data |> 
+  left_join(n2_data, by = join_by(nc_name, n2, time)) |> 
+  mutate(
+    diff_gdp_per_capita = c(NA, 100 * diff(gdp_pc_n3)),
+    diff_gini_nuts2 = c(NA, 100 * diff(gini_n2))
+  ) %>%
+  filter(complete.cases(.)) |> 
+  group_by(nc_name, n2) |> 
+  nest(.key = "NUTS2_diff")
+```
+
+```{r}
+unnest(NUTS2_diff, NUTS2_diff) |> 
+  ungroup() |> 
+  filter(!is.nan(gini_n2)) |> 
+  select(n2) |> 
+  distinct() |> 
+  nrow()
+```
+
+
+
+### Oppgave 34
+
+```{r}
+NUTS2_diff <- NUTS2_diff  |> 
+  group_by(nc_name, n2) |> 
+  mutate(
+    modell = map(
+      .x = NUTS2_diff,
+      .f = function(a_df) lm('diff_gini_nuts2 ~ diff_gdp_per_capita', data = a_df)
+    )
+  )
+```
+
+
+
+### Oppgave 35
+
+```{r}
+mod_coeff <- NUTS2_diff |>
+  mutate(
+    coeff = map(
+      modell,
+      ~ coef(.x)
+    )
+  )
 
 ```
 
 
 ```{r}
+mod_coeff <- mod_coeff |>
+  select(nc_name, n2, coeff) |>
+  mutate(
+    coeff = map(
+      coeff,
+      ~ tibble(
+        term = names(.x),
+        estimate = as.numeric(.x)
+      )
+    )
+  ) |>
+  unnest(coeff)
 
 ```
+
+```{r}
+mod_coeff <- mod_coeff |>
+  filter(term == "diff_gdp_per_capita")
+
+```
+
+
+
+### Oppgave 36
+
+
+```{r}
+NUTS2_diff <- NUTS2_diff  |> 
+  group_by(nc_name, n2) |> 
+  mutate(
+    mod_sum = bind_rows(
+      map(
+        .x = modell,
+        .f = glance
+        )
+    )
+    )
+```
+
+
+```{r}
+library(purrr)
+library(dplyr)
+
+NUTS2_diff <- NUTS2_diff |>
+  mutate(
+    mod_coeff = map(modell, coef),
+    intercept = map_dbl(mod_coeff, ~ .x["(Intercept)"])
+  )
+
+```
+
+
+### Oppgave 37
+
+```{r}
+#| paged.print: false
+NUTS2_diff |>
+  arrange(desc(mod_sum$r.squared)) |>
+  head(n = 3)
+
+NUTS2_diff |>
+  arrange(mod_sum$r.squared) |>
+  head(n = 3)
+  
+
+```
+
+
+
+
+### Oppgave 38
+
+```{r}
+mod_coeff_diff <- mod_coeff |>
+  filter(term == "diff_gdp_per_capita")
+
+```
+
+
+
+```{r}
+nuts1_beta <- mod_coeff_diff |>
+  group_by(nc_name) |>
+  summarise(
+    mean_beta = mean(estimate, na.rm = TRUE)
+  ) |>
+  arrange(desc(mean_beta))
+
+
+```
+
+```{r}
+nuts1_beta |> slice(1)
+nuts1_beta |> slice(n())
+
+```
+Basert på gjennomsnittlige koeffisienter for diff_gdp_per_capita på NUTS2-nivå, aggregert til NUTS1-soner, har Bulgaria den høyeste koeffisienten. Dette indikerer at endringer i BNP per innbygger har sterkest sammenheng med den avhengige variabelen i Bulgaria sammenlignet med de øvrige NUTS1-sonene i utvalget.
+
+
+### Oppgave 39
+
+```{r}
+NUTS2_diff |>
+  ungroup() |>
+  summarise(
+    n_significant = sum(mod_sum$p.value < 0.05, na.rm = TRUE),
+    n_total = n()
+  )
+
+```
+
+```{r}
+NUTS2_diff |>
+  ungroup() |>
+  summarise(n_significant = sum(mod_sum$p.value < 0.05, na.rm = TRUE)) |>
+  pull(n_significant)
+
+
+```
+
+
+### Oppgave 40
+
+```{r}
+NUTS2_diff |>
+  tidyr::unnest(cols = c(NUTS2_diff)) |>
+  names()
+
+```
+
+
+
+
+
+
+
+```{r}
+beta_df <- mod_coeff |>
+  filter(term == "diff_gdp_per_capita")
+
+m <- mean(beta_df$estimate, na.rm = TRUE)
+
+ggplot(beta_df, aes(x = estimate)) +
+  geom_density(color = "black") +
+  geom_vline(xintercept = m, linetype = "dashed") +
+  scale_x_continuous(
+    breaks = c(-2e-05, -1e-05, 0, 1e-05),
+    labels = scales::label_scientific()
+  ) +
+  scale_y_continuous(
+    breaks = c(0, 50000, 100000, 150000),
+    limits = c(0, 170000)
+  ) +
+  labs(x = "diff_gdp_per_capita", y = "density") 
+  
+
+
+
+```
+
+
+
+
+### Oppgave 41
+
+```{r}
+res_41 <- mod_coeff |>
+  ungroup() |>
+  filter(term == "diff_gdp_per_capita") |>
+  summarise(
+    n_positive = sum(estimate > 0, na.rm = TRUE),
+    n_total = n()
+  )
+
+res_41
+
+```
+
+
+
+### Oppgave 42
+
+```{r}
+res_42 <- mod_coeff |>
+  ungroup() |>
+  filter(term == "diff_gdp_per_capita") |>
+  summarise(
+    mean_estimate   = mean(estimate, na.rm = TRUE),
+    median_estimate = median(estimate, na.rm = TRUE)
+  )
+
+paste0("Mean: ", format(res_42$mean_estimate, scientific = TRUE, digits = 1))
+paste0("Median: ", format(res_42$median_estimate, scientific = TRUE, digits = 1))
+
+```
+
+
+
+### Oppgave 43
+
+```{r}
+x <- mod_coeff |>
+  ungroup() |>
+  filter(term == "diff_gdp_per_capita") |>
+  pull(estimate)
+
+```
+
+
+```{r}
+t.test(
+  x,
+  mu = 0,
+  alternative = "greater"
+)
+
+```
+
+## Panel modell
+
+
+### Oppgave 44
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(plm)
+
+panel_df <- NUTS2_diff %>%
+  select(nc_name, n2, NUTS2_diff) %>%   # <- viktig: tar bare med den nested dataen
+  unnest(cols = c(NUTS2_diff)) %>%
+  mutate(
+    n3 = as.character(n3),
+    time = as.integer(time)
+  )
+
+p_mod <- plm(
+  diff_gini_nuts2 ~ diff_gdp_per_capita,
+  data  = panel_df,
+  index = c("n3", "time"),
+  model = "within"
+)
+
+
+```
+
+
+
+
+### Oppgave 45
+
+```{r}
+summary(p_mod)
+
+```
+
+Resultatet fra panelregresjonen (within-modell med individuelle effekter) viser at diff_gdp_per_capita har en positiv og statistisk signifikant effekt på diff_gini_nuts2. Koeffisienten er positiv, men svært liten i størrelse, og er signifikant på 1 %-nivå (p < 0.001). Dette indikerer at økning i BNP per innbygger er assosiert med en økning i Gini-koeffisienten innen regioner over tid. Forklaringskraften er imidlertid lav (R² ≈ 0.01), noe som tyder på at modellen forklarer en begrenset del av variasjonen i ulikhet.
+
+
+
+### Oppgave 46
+
+I denne chunk-en brukes summary() på panelmodellen p_mod med en robust varians–kovariansmatrise, spesifisert gjennom vcovHC() med metoden "white2". Dette innebærer at standardfeilene beregnes på en måte som er robust mot heteroskedastisitet og mulig korrelasjon i residualene innen panelenhetene.
+Sammenlignet med en ordinær summary(p_mod) er koeffisientestimatene identiske, siden selve regresjonsmodellen ikke endres. Forskjellen ligger i standardfeilene, som i denne alternative metoden er større enn i den ordinære summary()-utskriften. Dette fører til noe lavere t-verdier, men koeffisienten for diff_gdp_per_capita forblir fortsatt sterkt statistisk signifikant.
+Resultatet viser dermed at konklusjonen om en positiv og signifikant sammenheng mellom endringer i BNP per innbygger og endringer i Gini-koeffisienten er robust, også når vi tar hensyn til mulig heteroskedastisitet i dataene. Forklaringskraften (R²) er uendret og fortsatt lav, noe som indikerer at modellen forklarer en begrenset andel av variasjonen i ulikhet.
+
+
 
 
 
